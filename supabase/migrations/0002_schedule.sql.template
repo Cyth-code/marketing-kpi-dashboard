@@ -1,0 +1,44 @@
+-- ============================================================
+--  Schedule daily ingestion with pg_cron + pg_net.
+--  Fill in <PROJECT_REF> and <SERVICE_ROLE_KEY> before running.
+--  (Rename to .sql once filled — kept as .template so secrets
+--   are never committed by accident.)
+-- ============================================================
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+-- GA4 daily @ 06:10 UTC
+select cron.schedule(
+  'ingest-ga4-daily',
+  '10 6 * * *',
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/ingest-ga4',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
+    ),
+    body    := jsonb_build_object('weeks', 12)
+  );
+  $$
+);
+
+-- GSC daily @ 06:20 UTC (staggered; GSC data lags ~2-3 days)
+select cron.schedule(
+  'ingest-gsc-daily',
+  '20 6 * * *',
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/ingest-gsc',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
+    ),
+    body    := jsonb_build_object('weeks', 12)
+  );
+  $$
+);
+
+-- To inspect / remove:
+--   select * from cron.job;
+--   select cron.unschedule('ingest-ga4-daily');
