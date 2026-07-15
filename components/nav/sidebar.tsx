@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-const NAV = [
+const NAV: { href: string; label: string; soon?: boolean }[] = [
   { href: "/overview", label: "Overview" },
   { href: "/traffic", label: "Traffic & Engagement" },
   { href: "/ecomm", label: "E-Commerce" },
-  { href: "/leads", label: "Leads & MQLs", soon: true },
+  { href: "/leads", label: "Leads & MQLs" },
 ];
 
 export function Sidebar() {

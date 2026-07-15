@@ -100,8 +100,8 @@ export default async function OverviewPage({
         <ClusterTile
           href="/leads"
           title="Leads & MQLs"
-          desc="Form submits, gated assets, abandoned-cart MQLs"
-          ready={false}
+          desc="Key events, lead conversion, landing-page ranking"
+          ready
         />
       </section>
     </main>

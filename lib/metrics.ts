@@ -114,3 +114,32 @@ export async function getTrafficSources(
   const rows = (data ?? []) as { segment: string; value: number }[];
   return channels.length ? rows.filter((r) => channels.includes(r.segment)) : rows;
 }
+
+/** Latest week's breakdown for a multi-segment metric (segment per row). */
+export async function getLatestBreakdown(
+  metricKey: string,
+): Promise<{ segment: string; value: number }[]> {
+  const supabase = createServerClient();
+
+  const { data: latest } = await supabase
+    .from("metric_values")
+    .select("period_start")
+    .eq("metric_key", metricKey)
+    .eq("granularity", "weekly")
+    .order("period_start", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!latest) return [];
+
+  const { data, error } = await supabase
+    .from("metric_values")
+    .select("segment, value")
+    .eq("metric_key", metricKey)
+    .eq("granularity", "weekly")
+    .eq("period_start", latest.period_start)
+    .order("value", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as { segment: string; value: number }[];
+}
