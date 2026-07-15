@@ -4,7 +4,7 @@ export type WowRow = {
   metric_key: string;
   label: string;
   cluster: string;
-  unit: "count" | "percent" | "position";
+  unit: "count" | "percent" | "position" | "currency";
   higher_is_better: boolean;
   show_trend: boolean;
   sort_order: number;

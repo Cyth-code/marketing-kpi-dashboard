@@ -6,8 +6,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 const NAV = [
   { href: "/overview", label: "Overview" },
   { href: "/traffic", label: "Traffic & Engagement" },
+  { href: "/ecomm", label: "E-Commerce" },
   { href: "/leads", label: "Leads & MQLs", soon: true },
-  { href: "/ecomm", label: "E-Commerce", soon: true },
 ];
 
 export function Sidebar() {

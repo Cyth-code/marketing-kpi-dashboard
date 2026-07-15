@@ -95,7 +95,7 @@ export default async function OverviewPage({
           href="/ecomm"
           title="E-Commerce"
           desc="Transactions, sales conversion, cart abandonment"
-          ready={false}
+          ready
         />
         <ClusterTile
           href="/leads"

@@ -6,6 +6,12 @@ import type { ScalarKpi } from "@/lib/metrics";
 function formatValue(v: number, unit: ScalarKpi["unit"]): string {
   if (unit === "percent") return `${v.toFixed(1)}%`;
   if (unit === "position") return v.toFixed(1);
+  if (unit === "currency")
+    return v.toLocaleString(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    });
   return v.toLocaleString();
 }
 
