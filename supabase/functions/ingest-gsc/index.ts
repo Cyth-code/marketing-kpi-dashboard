@@ -124,6 +124,36 @@ Deno.serve(async (req) => {
       }
     }
 
+    // daily rows (through yesterday) via one date-dimension query
+    const dStart = new Date();
+    dStart.setUTCDate(dStart.getUTCDate() - weeks * 7);
+    const dEnd = new Date();
+    dEnd.setUTCDate(dEnd.getUTCDate() - 1);
+    const dailyRes = await fetch(
+      `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(
+        siteUrl,
+      )}/searchAnalytics/query`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: ymd(dStart),
+          endDate: ymd(dEnd),
+          dimensions: ["date"],
+          type: "web",
+        }),
+      },
+    );
+    if (dailyRes.ok) {
+      const dj = await dailyRes.json();
+      for (const row of dj.rows ?? []) {
+        const day = row.keys?.[0];
+        if (!day) continue;
+        rows.push({ granularity: "daily", source: "gsc", metric_key: "organic_traffic", segment: "all", period_start: day, value: row.clicks ?? 0 });
+        rows.push({ granularity: "daily", source: "gsc", metric_key: "avg_position", segment: "all", period_start: day, value: +(row.position ?? 0).toFixed(1) });
+      }
+    }
+
     const { error } = await supabase
       .from("metric_values")
       .upsert(rows, { onConflict: "metric_key,segment,period_start,granularity" });

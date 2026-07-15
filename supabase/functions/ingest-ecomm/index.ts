@@ -124,7 +124,11 @@ Deno.serve(async (req) => {
 
     const range = lastCompleteWeeks(weeks);
     const startDate = ymd(range[0].start);
-    const endDate = ymd(range[range.length - 1].end);
+    // Extend through yesterday for the daily view; weekly skips the current week.
+    const yest = new Date();
+    yest.setUTCDate(yest.getUTCDate() - 1);
+    const endDate = ymd(yest);
+    const thisMonday = ymd(mondayOf(new Date()));
 
     // daily e-comm metrics -> bucket into weeks
     const report = await runReport(propertyId, token, {
@@ -152,15 +156,31 @@ Deno.serve(async (req) => {
 
     const rows: Row[] = [];
     const base = { granularity: "weekly", source: "ga4", segment: "all" };
+    const dbase = { granularity: "daily", source: "ga4", segment: "all" };
+    const derive = (tx: number, rev: number, carts: number, sessions: number, period: string, b: typeof base) => {
+      const salesConv = sessions ? (tx / sessions) * 100 : 0;
+      const aband = carts ? Math.max(0, Math.min(100, (1 - tx / carts) * 100)) : 0;
+      rows.push({ ...b, metric_key: "ecomm_transactions", period_start: period, value: tx });
+      rows.push({ ...b, metric_key: "ecomm_revenue", period_start: period, value: +rev.toFixed(2) });
+      rows.push({ ...b, metric_key: "ecomm_carts", period_start: period, value: carts });
+      rows.push({ ...b, metric_key: "sales_conversion_rate", period_start: period, value: +salesConv.toFixed(2) });
+      rows.push({ ...b, metric_key: "cart_abandonment_rate", period_start: period, value: +aband.toFixed(1) });
+    };
     for (const [wk, b] of buckets) {
-      const salesConv = b.sessions ? (b.tx / b.sessions) * 100 : 0;
-      // Cart abandonment: 1 - completed/carts. Clamp to [0,100].
-      const aband = b.carts ? Math.max(0, Math.min(100, (1 - b.tx / b.carts) * 100)) : 0;
-      rows.push({ ...base, metric_key: "ecomm_transactions", period_start: wk, value: b.tx });
-      rows.push({ ...base, metric_key: "ecomm_revenue", period_start: wk, value: +b.rev.toFixed(2) });
-      rows.push({ ...base, metric_key: "ecomm_carts", period_start: wk, value: b.carts });
-      rows.push({ ...base, metric_key: "sales_conversion_rate", period_start: wk, value: +salesConv.toFixed(2) });
-      rows.push({ ...base, metric_key: "cart_abandonment_rate", period_start: wk, value: +aband.toFixed(1) });
+      if (wk === thisMonday) continue; // skip in-progress week for weekly
+      derive(b.tx, b.rev, b.carts, b.sessions, wk, base);
+    }
+    // daily rows (per day, through yesterday)
+    for (const r of report.rows ?? []) {
+      const day = ymd(parseGaDate(r.dimensionValues[0].value));
+      derive(
+        +r.metricValues[0].value,
+        +r.metricValues[1].value,
+        +r.metricValues[2].value,
+        +r.metricValues[3].value,
+        day,
+        dbase,
+      );
     }
 
     const { error } = await supabase

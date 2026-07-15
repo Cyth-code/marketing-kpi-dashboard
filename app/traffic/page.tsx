@@ -1,31 +1,30 @@
 import { Suspense } from "react";
-import { getScalarKpis, getTrafficSources, type ScalarKpi } from "@/lib/metrics";
+import { getClusterKpis, getLatestBreakdown, type Kpi } from "@/lib/metrics";
+import { parseFilters, type SP } from "@/lib/filters";
 import { KpiCard } from "@/components/kpi-card";
-import { TrafficSourceChart } from "@/components/traffic-source-chart";
-import { TimeWindow } from "@/components/filters/time-window";
+import { RankedBar } from "@/components/ranked-bar";
+import { FilterBar } from "@/components/filters/filter-bar";
 import { ChannelFilter } from "@/components/filters/channel-filter";
 
 export const dynamic = "force-dynamic";
-
-type SP = { [key: string]: string | string[] | undefined };
 
 export default async function TrafficPage({
   searchParams,
 }: {
   searchParams: SP;
 }) {
-  const weeks = Number(searchParams?.weeks ?? 12) || 12;
+  const { g, range, carryQS, comparison } = parseFilters(searchParams);
   const channels = String(searchParams?.channels ?? "")
     .split(",")
     .filter(Boolean);
 
-  let kpis: ScalarKpi[] = [];
+  let kpis: Kpi[] = [];
   let allSources: { segment: string; value: number }[] = [];
   let err: string | null = null;
   try {
     [kpis, allSources] = await Promise.all([
-      getScalarKpis("traffic", weeks),
-      getTrafficSources(),
+      getClusterKpis("traffic", g, range),
+      getLatestBreakdown("traffic_source"),
     ]);
   } catch (e) {
     err = String(e);
@@ -35,7 +34,6 @@ export default async function TrafficPage({
   const sources = channels.length
     ? allSources.filter((s) => channels.includes(s.segment))
     : allSources;
-  const latestWeek = kpis?.[0]?.trend.at(-1)?.period_start;
 
   return (
     <main className="mx-auto max-w-6xl px-8 py-8">
@@ -43,16 +41,12 @@ export default async function TrafficPage({
         <h1 className="text-2xl font-semibold tracking-tight">
           Traffic &amp; Engagement
         </h1>
-        <p className="text-sm text-gray-500">
-          {latestWeek
-            ? `Latest complete week: ${new Date(latestWeek).toLocaleDateString()}`
-            : " "}
-        </p>
+        <p className="text-sm text-gray-500">Click any card to drill into its trend</p>
       </header>
 
-      <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+      <div className="mb-6 space-y-3">
         <Suspense>
-          <TimeWindow />
+          <FilterBar />
         </Suspense>
         <Suspense>
           <ChannelFilter channels={allChannels} />
@@ -67,7 +61,12 @@ export default async function TrafficPage({
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {kpis.map((kpi) => (
-          <KpiCard key={kpi.key} kpi={kpi} />
+          <KpiCard
+            key={kpi.key}
+            kpi={kpi}
+            href={`/metric/${kpi.key}?${carryQS}`}
+            comparisonLabel={comparison}
+          />
         ))}
       </section>
 
@@ -75,7 +74,7 @@ export default async function TrafficPage({
         <h2 className="mb-4 text-sm font-medium text-gray-500">
           Traffic Source · latest week
         </h2>
-        <TrafficSourceChart data={sources} />
+        <RankedBar data={sources} valueLabel="Sessions" drillTo="/metric/traffic_source" />
       </section>
     </main>
   );

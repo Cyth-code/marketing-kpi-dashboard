@@ -13,9 +13,13 @@ const NAV: { href: string; label: string; soon?: boolean }[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const sp = useSearchParams();
-  // Carry the time-window filter across pages.
-  const weeks = sp.get("weeks");
-  const qs = weeks ? `?weeks=${weeks}` : "";
+  // Carry the global filters (granularity + window/date range) across pages.
+  const carry = new URLSearchParams();
+  for (const k of ["g", "weeks", "from", "to"]) {
+    const v = sp.get(k);
+    if (v) carry.set(k, v);
+  }
+  const qs = carry.toString() ? `?${carry.toString()}` : "";
 
   return (
     <aside className="w-60 shrink-0 border-r border-gray-200 bg-white">

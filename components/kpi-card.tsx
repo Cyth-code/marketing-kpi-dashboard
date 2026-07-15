@@ -1,34 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
-import type { ScalarKpi } from "@/lib/metrics";
+import type { Kpi } from "@/lib/metrics";
+import { formatValue, deltaTone } from "@/lib/format";
 
-function formatValue(v: number, unit: ScalarKpi["unit"]): string {
-  if (unit === "percent") return `${v.toFixed(1)}%`;
-  if (unit === "position") return v.toFixed(1);
-  if (unit === "currency")
-    return v.toLocaleString(undefined, {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    });
-  return v.toLocaleString();
-}
-
-/** A rise is "good" or "bad" depending on the metric (bounce rate up = bad). */
-function deltaTone(pct: number | null, higherIsBetter: boolean): string {
-  if (pct === null || pct === 0) return "text-gray-400";
-  const positive = pct > 0;
-  const good = positive === higherIsBetter;
-  return good ? "text-emerald-600" : "text-rose-600";
-}
-
-export function KpiCard({ kpi }: { kpi: ScalarKpi }) {
+export function KpiCard({
+  kpi,
+  href,
+  comparisonLabel = "vs. previous period",
+}: {
+  kpi: Kpi;
+  href?: string;
+  comparisonLabel?: string;
+}) {
   const pct = kpi.pct_change;
   const arrow = pct === null ? "" : pct > 0 ? "▲" : pct < 0 ? "▼" : "—";
 
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+  const body = (
+    <div className="h-full rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-gray-500">{kpi.label}</p>
         {pct !== null && (
@@ -41,7 +31,10 @@ export function KpiCard({ kpi }: { kpi: ScalarKpi }) {
       <p className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
         {formatValue(kpi.value, kpi.unit)}
       </p>
-      <p className="mt-1 text-xs text-gray-400">vs. previous week</p>
+      <p className="mt-1 flex items-center justify-between text-xs text-gray-400">
+        <span>{comparisonLabel}</span>
+        {href && <span className="text-brand">Drill in →</span>}
+      </p>
 
       {kpi.show_trend && kpi.trend.length > 1 && (
         <div className="mt-3 h-12">
@@ -61,5 +54,13 @@ export function KpiCard({ kpi }: { kpi: ScalarKpi }) {
         </div>
       )}
     </div>
+  );
+
+  return href ? (
+    <Link href={href} className="block">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }

@@ -124,7 +124,12 @@ Deno.serve(async (req) => {
 
     const range = lastCompleteWeeks(weeks);
     const startDate = ymd(range[0].start);
-    const endDate = ymd(range[range.length - 1].end);
+    // Extend through yesterday so the DAILY view is current; weekly still only
+    // writes complete weeks (the in-progress week is skipped below).
+    const yest = new Date();
+    yest.setUTCDate(yest.getUTCDate() - 1);
+    const endDate = ymd(yest);
+    const thisMonday = ymd(mondayOf(new Date()));
 
     // 1) daily scalar metrics -> bucket into weeks
     const scalar = await runReport(propertyId, token, {
@@ -143,12 +148,25 @@ Deno.serve(async (req) => {
 
     const rows: Row[] = [];
     const base = { granularity: "weekly", source: "ga4" };
+    const dbase = { granularity: "daily", source: "ga4" };
     for (const [wk, b] of buckets) {
+      if (wk === thisMonday) continue; // skip in-progress week for weekly
       const engRate = b.sessions ? (b.engaged / b.sessions) * 100 : 0;
       rows.push({ ...base, metric_key: "site_traffic", segment: "all", period_start: wk, value: b.sessions });
       rows.push({ ...base, metric_key: "engaged_sessions", segment: "all", period_start: wk, value: b.engaged });
       rows.push({ ...base, metric_key: "engagement_rate", segment: "all", period_start: wk, value: +engRate.toFixed(1) });
       rows.push({ ...base, metric_key: "bounce_rate", segment: "all", period_start: wk, value: +(100 - engRate).toFixed(1) });
+    }
+    // daily rows (per day, through yesterday)
+    for (const r of scalar.rows ?? []) {
+      const day = ymd(parseGaDate(r.dimensionValues[0].value));
+      const s = +r.metricValues[0].value;
+      const e = +r.metricValues[1].value;
+      const er = s ? (e / s) * 100 : 0;
+      rows.push({ ...dbase, metric_key: "site_traffic", segment: "all", period_start: day, value: s });
+      rows.push({ ...dbase, metric_key: "engaged_sessions", segment: "all", period_start: day, value: e });
+      rows.push({ ...dbase, metric_key: "engagement_rate", segment: "all", period_start: day, value: +er.toFixed(1) });
+      rows.push({ ...dbase, metric_key: "bounce_rate", segment: "all", period_start: day, value: +(100 - er).toFixed(1) });
     }
 
     // 2) traffic source breakdown (date x channel)
@@ -159,13 +177,16 @@ Deno.serve(async (req) => {
     });
     const srcBuckets = new Map<string, number>();
     for (const r of bySource.rows ?? []) {
+      const day = ymd(parseGaDate(r.dimensionValues[0].value));
       const wk = ymd(mondayOf(parseGaDate(r.dimensionValues[0].value)));
       const channel = r.dimensionValues[1].value || "Unassigned";
-      const k = `${wk}|${channel}`;
-      srcBuckets.set(k, (srcBuckets.get(k) ?? 0) + +r.metricValues[0].value);
+      const val = +r.metricValues[0].value;
+      srcBuckets.set(`${wk}|${channel}`, (srcBuckets.get(`${wk}|${channel}`) ?? 0) + val);
+      rows.push({ ...dbase, metric_key: "traffic_source", segment: channel, period_start: day, value: val });
     }
     for (const [k, v] of srcBuckets) {
       const [wk, channel] = k.split("|");
+      if (wk === thisMonday) continue;
       rows.push({ ...base, metric_key: "traffic_source", segment: channel, period_start: wk, value: v });
     }
 

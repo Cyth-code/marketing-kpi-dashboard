@@ -1,32 +1,28 @@
 import { Suspense } from "react";
-import {
-  getScalarKpis,
-  getLatestBreakdown,
-  type ScalarKpi,
-} from "@/lib/metrics";
+import Link from "next/link";
+import { getClusterKpis, getLatestBreakdown, type Kpi } from "@/lib/metrics";
+import { parseFilters, type SP } from "@/lib/filters";
 import { KpiCard } from "@/components/kpi-card";
 import { RankedBar } from "@/components/ranked-bar";
-import { TimeWindow } from "@/components/filters/time-window";
+import { FilterBar } from "@/components/filters/filter-bar";
 
 export const dynamic = "force-dynamic";
-
-type SP = { [key: string]: string | string[] | undefined };
 
 export default async function LeadsPage({
   searchParams,
 }: {
   searchParams: SP;
 }) {
-  const weeks = Number(searchParams?.weeks ?? 12) || 12;
+  const { g, range, carryQS, comparison } = parseFilters(searchParams);
 
-  let kpis: ScalarKpi[] = [];
+  let kpis: Kpi[] = [];
   let keyEvents: { segment: string; value: number }[] = [];
   let landingPages: { segment: string; value: number }[] = [];
   let mqlByChannel: { segment: string; value: number }[] = [];
   let err: string | null = null;
   try {
     [kpis, keyEvents, landingPages, mqlByChannel] = await Promise.all([
-      getScalarKpis("leads", weeks),
+      getClusterKpis("leads", g, range),
       getLatestBreakdown("key_event"),
       getLatestBreakdown("landing_page_conversions"),
       getLatestBreakdown("mql_by_channel"),
@@ -35,22 +31,18 @@ export default async function LeadsPage({
     err = String(e);
   }
 
-  const latestWeek = kpis?.[0]?.trend.at(-1)?.period_start;
-
   return (
     <main className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Leads &amp; MQLs</h1>
         <p className="text-sm text-gray-500">
-          {latestWeek
-            ? `Latest complete week: ${new Date(latestWeek).toLocaleDateString()} · source: GA4 key events`
-            : "Lead generation & conversion"}
+          Lead generation &amp; conversion · source: GA4 key events
         </p>
       </header>
 
       <div className="mb-6">
         <Suspense>
-          <TimeWindow />
+          <FilterBar />
         </Suspense>
       </div>
 
@@ -60,16 +52,14 @@ export default async function LeadsPage({
         </div>
       )}
 
-      {!err && kpis.length === 0 && (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
-          No leads data yet. Run <code>0004_leads.sql</code> and invoke the{" "}
-          <code>ingest-leads</code> function to backfill.
-        </div>
-      )}
-
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {kpis.map((kpi) => (
-          <KpiCard key={kpi.key} kpi={kpi} />
+          <KpiCard
+            key={kpi.key}
+            kpi={kpi}
+            href={`/metric/${kpi.key}?${carryQS}`}
+            comparisonLabel={comparison}
+          />
         ))}
       </section>
 
@@ -79,12 +69,12 @@ export default async function LeadsPage({
             MQLs by Channel · latest week
           </h2>
           <p className="mb-4 text-xs text-gray-400">
-            Key events by acquisition channel. Generic segmentation until named
-            segments are defined.
+            Generic segmentation by acquisition channel.
           </p>
           <RankedBar
             data={mqlByChannel}
             valueLabel="MQLs"
+            drillTo="/metric/mql_by_channel"
             emptyText="No MQL channel data yet."
           />
         </section>
@@ -94,51 +84,53 @@ export default async function LeadsPage({
             Key Event Volume · latest week
           </h2>
           <p className="mb-4 text-xs text-gray-400">
-            Which high-value actions fired. Use these event names to define MQL
-            segments.
+            Use these event names to define named MQL segments later.
           </p>
           <RankedBar
             data={keyEvents}
             valueLabel="Key events"
-            emptyText="No key events recorded — check that GA4 has key events marked."
+            drillTo="/metric/key_event"
+            emptyText="No key events recorded."
           />
         </section>
-
-        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-1 text-sm font-medium text-gray-500">
-            Landing Page Conversion · latest week
-          </h2>
-          <p className="mb-4 text-xs text-gray-400">
-            Pages driving the most key events (top 15).
-          </p>
-          {landingPages.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left text-xs text-gray-400">
-                    <th className="py-2 font-medium">Landing page</th>
-                    <th className="py-2 text-right font-medium">Key events</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {landingPages.map((p) => (
-                    <tr key={p.segment} className="border-b border-gray-50">
-                      <td className="max-w-xs truncate py-2 text-gray-700" title={p.segment}>
-                        {p.segment}
-                      </td>
-                      <td className="py-2 text-right font-medium text-gray-900">
-                        {p.value.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">No landing-page conversions yet.</p>
-          )}
-        </section>
       </div>
+
+      <section className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-4 text-sm font-medium text-gray-500">
+          Landing Page Conversion · latest week
+        </h2>
+        {landingPages.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-xs text-gray-400">
+                  <th className="py-2 font-medium">Landing page</th>
+                  <th className="py-2 text-right font-medium">Key events</th>
+                </tr>
+              </thead>
+              <tbody>
+                {landingPages.map((p) => (
+                  <tr key={p.segment} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="max-w-md truncate py-2 text-gray-700" title={p.segment}>
+                      <Link
+                        href={`/metric/landing_page_conversions?segment=${encodeURIComponent(p.segment)}&${carryQS}`}
+                        className="hover:text-brand hover:underline"
+                      >
+                        {p.segment}
+                      </Link>
+                    </td>
+                    <td className="py-2 text-right font-medium text-gray-900">
+                      {p.value.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">No landing-page conversions yet.</p>
+        )}
+      </section>
     </main>
   );
 }

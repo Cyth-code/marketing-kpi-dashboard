@@ -124,11 +124,17 @@ Deno.serve(async (req) => {
 
     const range = lastCompleteWeeks(weeks);
     const startDate = ymd(range[0].start);
-    const endDate = ymd(range[range.length - 1].end);
+    // Extend through yesterday for the daily view; weekly skips the current week.
+    const yest = new Date();
+    yest.setUTCDate(yest.getUTCDate() - 1);
+    const endDate = ymd(yest);
+    const thisMonday = ymd(mondayOf(new Date()));
     const lastWeek = range[range.length - 1];
 
     const rows: Row[] = [];
     const base = { granularity: "weekly", source: "ga4" };
+    const dbase = { granularity: "daily", source: "ga4" };
+    const days: string[] = []; // distinct days seen (from rep1)
 
     // 1) total key events + sessions per week -> total_key_events, lead_conversion_rate
     const rep1 = await runReport(propertyId, token, {
@@ -145,9 +151,19 @@ Deno.serve(async (req) => {
       wkTotals.set(wk, b);
     }
     for (const [wk, b] of wkTotals) {
+      if (wk === thisMonday) continue; // skip in-progress week for weekly
       const conv = b.sessions ? (b.ke / b.sessions) * 100 : 0;
       rows.push({ ...base, metric_key: "total_key_events", segment: "all", period_start: wk, value: b.ke });
       rows.push({ ...base, metric_key: "lead_conversion_rate", segment: "all", period_start: wk, value: +conv.toFixed(2) });
+    }
+    // daily total_key_events + lead_conversion_rate (per day, through yesterday)
+    for (const r of rep1.rows ?? []) {
+      const day = ymd(parseGaDate(r.dimensionValues[0].value));
+      days.push(day);
+      const ke = +r.metricValues[0].value;
+      const s = +r.metricValues[1].value;
+      rows.push({ ...dbase, metric_key: "total_key_events", segment: "all", period_start: day, value: ke });
+      rows.push({ ...dbase, metric_key: "lead_conversion_rate", segment: "all", period_start: day, value: +(s ? (ke / s) * 100 : 0).toFixed(2) });
     }
 
     // 2) key events by event name per week -> key_event (segment = eventName)
@@ -167,6 +183,7 @@ Deno.serve(async (req) => {
     }
     for (const [k, v] of evByWeek) {
       const [wk, ev] = k.split("|");
+      if (wk === thisMonday) continue;
       rows.push({ ...base, metric_key: "key_event", segment: ev, period_start: wk, value: v });
     }
 
@@ -194,21 +211,32 @@ Deno.serve(async (req) => {
     });
     const chByWeek = new Map<string, number>(); // "week|channel" -> keyEvents
     const seoByWeek = new Map<string, number>(); // week -> organic keyEvents
+    const seoByDay = new Map<string, number>(); // day -> organic keyEvents
     for (const r of rep4.rows ?? []) {
       const ke = +r.metricValues[0].value;
       if (ke <= 0) continue;
       const wk = ymd(mondayOf(parseGaDate(r.dimensionValues[0].value)));
       const ch = r.dimensionValues[1].value || "Unassigned";
       chByWeek.set(`${wk}|${ch}`, (chByWeek.get(`${wk}|${ch}`) ?? 0) + ke);
-      if (ch === "Organic Search") seoByWeek.set(wk, (seoByWeek.get(wk) ?? 0) + ke);
+      if (ch === "Organic Search") {
+        seoByWeek.set(wk, (seoByWeek.get(wk) ?? 0) + ke);
+        const day = ymd(parseGaDate(r.dimensionValues[0].value));
+        seoByDay.set(day, (seoByDay.get(day) ?? 0) + ke);
+      }
     }
     for (const [k, v] of chByWeek) {
       const [wk, ch] = k.split("|");
+      if (wk === thisMonday) continue;
       rows.push({ ...base, metric_key: "mql_by_channel", segment: ch, period_start: wk, value: v });
     }
-    // Write a row for every week (0 when no organic key events) so WoW is clean.
+    // Weekly mqls_from_seo: a row per complete week (0 when no organic).
     for (const wk of wkTotals.keys()) {
+      if (wk === thisMonday) continue;
       rows.push({ ...base, metric_key: "mqls_from_seo", segment: "all", period_start: wk, value: seoByWeek.get(wk) ?? 0 });
+    }
+    // Daily mqls_from_seo: a row per day (0 when no organic).
+    for (const day of days) {
+      rows.push({ ...dbase, metric_key: "mqls_from_seo", segment: "all", period_start: day, value: seoByDay.get(day) ?? 0 });
     }
 
     const { error } = await supabase
