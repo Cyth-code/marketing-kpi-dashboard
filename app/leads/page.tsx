@@ -22,12 +22,14 @@ export default async function LeadsPage({
   let kpis: ScalarKpi[] = [];
   let keyEvents: { segment: string; value: number }[] = [];
   let landingPages: { segment: string; value: number }[] = [];
+  let mqlByChannel: { segment: string; value: number }[] = [];
   let err: string | null = null;
   try {
-    [kpis, keyEvents, landingPages] = await Promise.all([
+    [kpis, keyEvents, landingPages, mqlByChannel] = await Promise.all([
       getScalarKpis("leads", weeks),
       getLatestBreakdown("key_event"),
       getLatestBreakdown("landing_page_conversions"),
+      getLatestBreakdown("mql_by_channel"),
     ]);
   } catch (e) {
     err = String(e);
@@ -72,6 +74,21 @@ export default async function LeadsPage({
       </section>
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-1 text-sm font-medium text-gray-500">
+            MQLs by Channel · latest week
+          </h2>
+          <p className="mb-4 text-xs text-gray-400">
+            Key events by acquisition channel. Generic segmentation until named
+            segments are defined.
+          </p>
+          <RankedBar
+            data={mqlByChannel}
+            valueLabel="MQLs"
+            emptyText="No MQL channel data yet."
+          />
+        </section>
+
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="mb-1 text-sm font-medium text-gray-500">
             Key Event Volume · latest week

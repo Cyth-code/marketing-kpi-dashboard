@@ -185,6 +185,32 @@ Deno.serve(async (req) => {
       rows.push({ ...base, metric_key: "landing_page_conversions", segment: page, period_start: ymd(lastWeek.start), value: ke });
     }
 
+    // 4) key events by acquisition channel -> mql_by_channel + mqls_from_seo
+    //    Generic MQL segmentation (no business rules); SEO = Organic Search.
+    const rep4 = await runReport(propertyId, token, {
+      dateRanges: [{ startDate, endDate }],
+      dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGroup" }],
+      metrics: [{ name: "keyEvents" }],
+    });
+    const chByWeek = new Map<string, number>(); // "week|channel" -> keyEvents
+    const seoByWeek = new Map<string, number>(); // week -> organic keyEvents
+    for (const r of rep4.rows ?? []) {
+      const ke = +r.metricValues[0].value;
+      if (ke <= 0) continue;
+      const wk = ymd(mondayOf(parseGaDate(r.dimensionValues[0].value)));
+      const ch = r.dimensionValues[1].value || "Unassigned";
+      chByWeek.set(`${wk}|${ch}`, (chByWeek.get(`${wk}|${ch}`) ?? 0) + ke);
+      if (ch === "Organic Search") seoByWeek.set(wk, (seoByWeek.get(wk) ?? 0) + ke);
+    }
+    for (const [k, v] of chByWeek) {
+      const [wk, ch] = k.split("|");
+      rows.push({ ...base, metric_key: "mql_by_channel", segment: ch, period_start: wk, value: v });
+    }
+    // Write a row for every week (0 when no organic key events) so WoW is clean.
+    for (const wk of wkTotals.keys()) {
+      rows.push({ ...base, metric_key: "mqls_from_seo", segment: "all", period_start: wk, value: seoByWeek.get(wk) ?? 0 });
+    }
+
     const { error } = await supabase
       .from("metric_values")
       .upsert(rows, { onConflict: "metric_key,segment,period_start,granularity" });
