@@ -110,37 +110,36 @@ Deno.serve(async (req) => {
       dy.set(day, bd);
     }
 
-    const rows: Row[] = [];
-    for (const [w, b] of wk) {
-      if (w === thisMonday) continue; // weekly = complete weeks only
-      rows.push({ granularity: "weekly", source: "wix", segment: "all", metric_key: "ecomm_transactions", period_start: w, value: b.tx });
-      rows.push({ granularity: "weekly", source: "wix", segment: "all", metric_key: "ecomm_revenue", period_start: w, value: +b.rev.toFixed(2) });
-    }
-    for (const [day, b] of dy) {
-      rows.push({ granularity: "daily", source: "wix", segment: "all", metric_key: "ecomm_transactions", period_start: day, value: b.tx });
-      rows.push({ granularity: "daily", source: "wix", segment: "all", metric_key: "ecomm_revenue", period_start: day, value: +b.rev.toFixed(2) });
-    }
-
-    // --- sales conversion rate = Wix transactions / GA4 sessions (already stored) ---
+    // Sessions (GA4) for the range: used to (a) compute conversion and
+    // (b) enumerate every period so Wix overwrites any legacy GA4 rows.
     const { data: sess } = await supabase
       .from("metric_values")
       .select("period_start,value,granularity")
       .eq("metric_key", "site_traffic")
       .eq("segment", "all")
       .gte("period_start", ymd(startDate));
+    const sessMap = new Map<string, number>(); // "gran|period" -> sessions
+    const periods = new Set<string>(); // "gran|period"
     for (const s of sess ?? []) {
-      const bucket = (s.granularity === "daily" ? dy : wk).get(s.period_start);
-      const tx = bucket?.tx ?? 0;
-      const conv = s.value ? (tx / s.value) * 100 : 0;
-      if (s.granularity === "weekly" && s.period_start === thisMonday) continue;
-      rows.push({
-        granularity: s.granularity,
-        source: "wix",
-        segment: "all",
-        metric_key: "sales_conversion_rate",
-        period_start: s.period_start,
-        value: +conv.toFixed(2),
-      });
+      sessMap.set(`${s.granularity}|${s.period_start}`, s.value);
+      periods.add(`${s.granularity}|${s.period_start}`);
+    }
+    // include periods with Wix orders even if no sessions were recorded
+    for (const w of wk.keys()) periods.add(`weekly|${w}`);
+    for (const d of dy.keys()) periods.add(`daily|${d}`);
+
+    const rows: Row[] = [];
+    for (const key of periods) {
+      const [gran, period] = key.split("|");
+      if (gran === "weekly" && period === thisMonday) continue; // complete weeks only
+      const b = (gran === "daily" ? dy : wk).get(period);
+      const tx = b?.tx ?? 0;
+      const rev = b?.rev ?? 0;
+      const sessions = sessMap.get(key) ?? 0;
+      const conv = sessions ? (tx / sessions) * 100 : 0;
+      rows.push({ granularity: gran, source: "wix", segment: "all", metric_key: "ecomm_transactions", period_start: period, value: tx });
+      rows.push({ granularity: gran, source: "wix", segment: "all", metric_key: "ecomm_revenue", period_start: period, value: +rev.toFixed(2) });
+      rows.push({ granularity: gran, source: "wix", segment: "all", metric_key: "sales_conversion_rate", period_start: period, value: +conv.toFixed(2) });
     }
 
     const { error } = await supabase
