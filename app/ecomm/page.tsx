@@ -26,7 +26,7 @@ export default async function EcommPage({
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">E-Commerce</h1>
         <p className="text-sm text-gray-500">
-          Transactions &amp; conversion · source: GA4 e-commerce
+          Transactions &amp; revenue: Wix orders · carts &amp; abandonment: GA4
         </p>
       </header>
 

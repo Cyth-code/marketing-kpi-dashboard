@@ -130,57 +130,41 @@ Deno.serve(async (req) => {
     const endDate = ymd(yest);
     const thisMonday = ymd(mondayOf(new Date()));
 
-    // daily e-comm metrics -> bucket into weeks
+    // GA4 owns the behavioral funnel only: carts + cart abandonment.
+    // Transactions, revenue, and sales conversion come from Wix (ingest-wix).
     const report = await runReport(propertyId, token, {
       dateRanges: [{ startDate, endDate }],
       dimensions: [{ name: "date" }],
-      metrics: [
-        { name: "ecommercePurchases" },
-        { name: "purchaseRevenue" },
-        { name: "addToCarts" },
-        { name: "sessions" },
-      ],
+      metrics: [{ name: "ecommercePurchases" }, { name: "addToCarts" }],
     });
 
-    type Bucket = { tx: number; rev: number; carts: number; sessions: number };
+    type Bucket = { tx: number; carts: number };
     const buckets = new Map<string, Bucket>();
     for (const r of report.rows ?? []) {
       const wk = ymd(mondayOf(parseGaDate(r.dimensionValues[0].value)));
-      const b = buckets.get(wk) ?? { tx: 0, rev: 0, carts: 0, sessions: 0 };
+      const b = buckets.get(wk) ?? { tx: 0, carts: 0 };
       b.tx += +r.metricValues[0].value;
-      b.rev += +r.metricValues[1].value;
-      b.carts += +r.metricValues[2].value;
-      b.sessions += +r.metricValues[3].value;
+      b.carts += +r.metricValues[1].value;
       buckets.set(wk, b);
     }
 
     const rows: Row[] = [];
     const base = { granularity: "weekly", source: "ga4", segment: "all" };
     const dbase = { granularity: "daily", source: "ga4", segment: "all" };
-    const derive = (tx: number, rev: number, carts: number, sessions: number, period: string, b: typeof base) => {
-      const salesConv = sessions ? (tx / sessions) * 100 : 0;
+    const derive = (tx: number, carts: number, period: string, b: typeof base) => {
+      // Cart abandonment: 1 - completed/carts. Clamp to [0,100].
       const aband = carts ? Math.max(0, Math.min(100, (1 - tx / carts) * 100)) : 0;
-      rows.push({ ...b, metric_key: "ecomm_transactions", period_start: period, value: tx });
-      rows.push({ ...b, metric_key: "ecomm_revenue", period_start: period, value: +rev.toFixed(2) });
       rows.push({ ...b, metric_key: "ecomm_carts", period_start: period, value: carts });
-      rows.push({ ...b, metric_key: "sales_conversion_rate", period_start: period, value: +salesConv.toFixed(2) });
       rows.push({ ...b, metric_key: "cart_abandonment_rate", period_start: period, value: +aband.toFixed(1) });
     };
     for (const [wk, b] of buckets) {
       if (wk === thisMonday) continue; // skip in-progress week for weekly
-      derive(b.tx, b.rev, b.carts, b.sessions, wk, base);
+      derive(b.tx, b.carts, wk, base);
     }
     // daily rows (per day, through yesterday)
     for (const r of report.rows ?? []) {
       const day = ymd(parseGaDate(r.dimensionValues[0].value));
-      derive(
-        +r.metricValues[0].value,
-        +r.metricValues[1].value,
-        +r.metricValues[2].value,
-        +r.metricValues[3].value,
-        day,
-        dbase,
-      );
+      derive(+r.metricValues[0].value, +r.metricValues[1].value, day, dbase);
     }
 
     const { error } = await supabase
