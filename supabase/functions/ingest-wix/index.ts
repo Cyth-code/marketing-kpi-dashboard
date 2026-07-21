@@ -54,8 +54,8 @@ Deno.serve(async (req) => {
     const yest = new Date();
     yest.setUTCDate(yest.getUTCDate() - 1);
     const thisMonday = ymd(mondayOf(new Date()));
-    const startISO = `${ymd(startDate)}T00:00:00.000Z`;
-    const endISO = `${ymd(yest)}T23:59:59.999Z`;
+    const startISO = `${ymd(startDate)}T00:00:00Z`;
+    const endISO = `${ymd(yest)}T23:59:59Z`;
 
     const headers: Record<string, string> = {
       Authorization: apiKey,
@@ -72,7 +72,12 @@ Deno.serve(async (req) => {
       const search = cursor
         ? { cursorPaging: { limit: 100, cursor } }
         : {
-            filter: { createdDate: { $gte: startISO, $lte: endISO } },
+            filter: {
+              $and: [
+                { createdDate: { $gte: startISO } },
+                { createdDate: { $lte: endISO } },
+              ],
+            },
             sort: [{ fieldName: "createdDate", order: "ASC" }],
             cursorPaging: { limit: 100 },
           };
